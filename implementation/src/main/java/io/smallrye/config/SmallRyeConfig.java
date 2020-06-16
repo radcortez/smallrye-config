@@ -211,6 +211,15 @@ public class SmallRyeConfig implements Config, Serializable {
         return getOptionalValue(name, Converters.newCollectionConverter(converter, collectionFactory));
     }
 
+    @Experimental("TODO")
+    public <T> T getConfigProperties(Class<T> klass) {
+        return getConfigProperties(klass, null);
+    }
+
+    public <T> T getConfigProperties(Class<T> klass, String prefix) {
+        return SmallRyeConfigProperties.mapConfigProperties(klass, prefix, this);
+    }
+
     @Override
     public Iterable<String> getPropertyNames() {
         final HashSet<String> names = new HashSet<>();

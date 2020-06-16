@@ -38,6 +38,7 @@ public class InjectionTestConfigFactory extends SmallRyeConfigFactory {
                 })
                 .withSources(KeyValuesConfigSource.config("optional.int.value", "1", "optional.long.value", "2",
                         "optional.double.value", "3.3"))
+                .withSources(KeyValuesConfigSource.config("server.host", "localhost", "server.port", "8080"))
                 .withSecretKeys("secret")
                 .build();
     }
