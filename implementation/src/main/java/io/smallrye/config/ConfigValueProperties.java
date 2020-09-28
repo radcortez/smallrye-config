@@ -146,7 +146,6 @@ class ConfigValueProperties extends HashMap<String, ConfigValue> {
                 if (skipLF) {
                     skipLF = false;
                     if (c == '\n') {
-                        lineNumber++;
                         continue;
                     }
                 }
