@@ -22,17 +22,24 @@ import static io.smallrye.config.inject.ConfigProducer.isClassHandledByConfigPro
 import static io.smallrye.config.inject.SecuritySupport.getContextClassLoader;
 import static java.util.stream.Collectors.toSet;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Executable;
+import java.lang.reflect.Field;
+import java.lang.reflect.Member;
+import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import javax.enterprise.event.Observes;
@@ -110,7 +117,7 @@ public class ConfigExtension implements Extension {
                 ParameterizedType type = (ParameterizedType) requiredType;
                 // TODO We should probably handle all parameterized types correctly
                 if (type.getRawType().equals(Provider.class) || type.getRawType().equals(Instance.class)) {
-                    // These injection points are satisfied by the built-in Instance bean 
+                    // These injection points are satisfied by the built-in Instance bean
                     Type typeArgument = type.getActualTypeArguments()[0];
                     if (typeArgument instanceof Class && !isClassHandledByConfigProducer(typeArgument)) {
                         customTypes.add((Class<?>) typeArgument);
@@ -149,7 +156,9 @@ public class ConfigExtension implements Extension {
             try {
                 name = ConfigProducerUtil.getConfigKey(injectionPoint, configProperty);
             } catch (IllegalStateException e) {
-                adv.addDeploymentProblem(e);
+                adv.addDeploymentProblem(
+                        InjectionMessages.msg.retrieveConfigFailure(null, formatInjectionPoint(injectionPoint),
+                                e.getLocalizedMessage(), e));
                 continue;
             }
 
@@ -159,7 +168,8 @@ public class ConfigExtension implements Extension {
             if ((!configNames.contains(name) && ConfigProducerUtil.getRawValue(name, config) == null)
                     && !isIndexed(type, name, config)) {
                 if (configProperty.defaultValue().equals(ConfigProperty.UNCONFIGURED_VALUE)) {
-                    adv.addDeploymentProblem(InjectionMessages.msg.noConfigValue(name));
+                    adv.addDeploymentProblem(
+                            InjectionMessages.msg.noConfigValue(name, formatInjectionPoint(injectionPoint)));
                     continue;
                 }
             }
@@ -167,28 +177,40 @@ public class ConfigExtension implements Extension {
             try {
                 // Check if the value can be injected. This may cause duplicated config reads (to validate and to inject).
                 ConfigProducerUtil.getValue(injectionPoint, config);
-            } catch (IllegalArgumentException e) {
-                adv.addDeploymentProblem(InjectionMessages.msg.illegalConversion(name, type));
-            } catch (NoSuchElementException e) {
-                adv.addDeploymentProblem(e);
+            } catch (Exception e) {
+                adv.addDeploymentProblem(InjectionMessages.msg.retrieveConfigFailure(name, formatInjectionPoint(injectionPoint),
+                        e.getLocalizedMessage(), e));
             }
         }
 
-        Set<ConfigMappings.ConfigMappingWithPrefix> configMappingsWithPrefix = new HashSet<>();
         for (AnnotatedType<?> configMapping : configMappings) {
-            configMappingsWithPrefix
-                    .add(configMappingWithPrefix(configMapping.getJavaClass(), getPrefixFromType(configMapping)));
+            registerAndValidateConfigMapping(
+                    configMappingWithPrefix(configMapping.getJavaClass(), getPrefixFromType(configMapping)), adv,
+                    (SmallRyeConfig) config);
         }
 
         for (InjectionPoint injectionPoint : configMappingInjectionPoints) {
-            getPrefixFromInjectionPoint(injectionPoint).ifPresent(prefix -> configMappingsWithPrefix
-                    .add(configMappingWithPrefix((Class<?>) injectionPoint.getType(), prefix)));
+            getPrefixFromInjectionPoint(injectionPoint).ifPresent(prefix -> registerAndValidateConfigMapping(
+                    configMappingWithPrefix((Class<?>) injectionPoint.getType(), prefix), adv, (SmallRyeConfig) config));
         }
+    }
 
+    private void registerAndValidateConfigMapping(ConfigMappings.ConfigMappingWithPrefix cm, AfterDeploymentValidation adv,
+            SmallRyeConfig config) {
         try {
-            ConfigMappings.registerConfigMappings((SmallRyeConfig) config, configMappingsWithPrefix);
+            ConfigMappings.registerConfigMappings(config, Collections.singleton(cm));
         } catch (ConfigValidationException e) {
-            adv.addDeploymentProblem(e);
+            if (cm.getKlass().getAnnotation(ConfigMapping.class) != null) {
+                adv.addDeploymentProblem(
+                        InjectionMessages.msg.retrieveConfigMappingsFailure(cm.getPrefix(), cm.getKlass().getName(),
+                                e.getLocalizedMessage(), e));
+            } else if (cm.getKlass().getAnnotation(ConfigProperties.class) != null) {
+                adv.addDeploymentProblem(
+                        InjectionMessages.msg.retrieveConfigPropertiesFailure(cm.getPrefix(), cm.getKlass().getName(),
+                                e.getLocalizedMessage(), e));
+            } else {
+                adv.addDeploymentProblem(e);
+            }
         }
     }
 
@@ -202,5 +224,30 @@ public class ConfigExtension implements Extension {
                         Set.class.isAssignableFrom((Class<?>) ((ParameterizedType) type).getRawType()))
                 &&
                 !((SmallRyeConfig) config).getIndexedPropertiesIndexes(name).isEmpty();
+    }
+
+    public static String formatInjectionPoint(InjectionPoint injectionPoint) {
+
+        Member member = injectionPoint.getMember();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(member.getDeclaringClass().getName());
+
+        if (member instanceof Field) {
+            sb.append("." + member.getName());
+        } else if (member instanceof Method) {
+            sb.append("." + member.getName());
+            appendParameterTypes(sb, (Method) member);
+        } else if (member instanceof Constructor) {
+            appendParameterTypes(sb, (Constructor) member);
+        }
+        return sb.toString();
+    }
+
+    private static void appendParameterTypes(StringBuilder sb, Executable executable) {
+        sb.append("(" +
+                Arrays.stream(executable.getParameterTypes()).map(Class::getSimpleName).collect(
+                        Collectors.joining(", "))
+                + ")");
     }
 }
