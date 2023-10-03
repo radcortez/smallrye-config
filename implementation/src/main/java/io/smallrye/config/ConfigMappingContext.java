@@ -7,7 +7,6 @@ import static io.smallrye.config.Converters.newOptionalConverter;
 import static io.smallrye.config.Converters.newSecretConverter;
 import static io.smallrye.config.common.utils.StringUtil.unindexed;
 
-import java.io.Serial;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.ArrayList;
@@ -1069,25 +1068,33 @@ public final class ConfigMappingContext {
             return false;
         }
 
+        @SuppressWarnings("unused")
+        public static <T> T requireValue(final String name, final T value) {
+            if (value == null) {
+                throw ConfigMessages.msg.propertyNotSet(name);
+            }
+            return value;
+        }
+
         private static String quoted(final String key) {
             NameIterator keyIterator = new NameIterator(key);
             keyIterator.next();
             return keyIterator.hasNext() ? "\"" + key + "\"" : key;
         }
-    }
 
-    static class MapWithDefault<K, V> extends HashMap<K, V> {
-        @Serial
-        private static final long serialVersionUID = 1390928078837140814L;
-        private final V defaultValue;
+        public static class MapWithDefault<K, V> extends HashMap<K, V> {
+            @java.io.Serial
+            private static final long serialVersionUID = 1390928078837140814L;
+            private final V defaultValue;
 
-        MapWithDefault(final V defaultValue) {
-            this.defaultValue = defaultValue;
-        }
+            public MapWithDefault(final V defaultValue) {
+                this.defaultValue = defaultValue;
+            }
 
-        @Override
-        public V get(final Object key) {
-            return getOrDefault(key, defaultValue);
+            @Override
+            public V get(final Object key) {
+                return getOrDefault(key, defaultValue);
+            }
         }
     }
 }

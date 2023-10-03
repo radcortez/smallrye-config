@@ -5,11 +5,15 @@ import static java.lang.invoke.MethodType.methodType;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Type;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
+import org.eclipse.microprofile.config.spi.Converter;
 
 import io.smallrye.common.classloader.ClassDefiner;
 import io.smallrye.common.constraint.Assert;
@@ -93,13 +97,20 @@ public final class ConfigMappingLoader {
                 if (generatedClass instanceof ConfigMappingClass) {
                     return loadedClass;
                 }
-                return defineClass(parent, generatedClass.getClassName(), generatedClass.generateClassBytes());
+                return loadClass(parent, generatedClass);
             } catch (ClassNotFoundException e) {
-                return defineClass(parent, generatedClass.getClassName(), generatedClass.generateClassBytes());
+                return loadClass(parent, generatedClass);
             } finally {
                 CLASS_LOADER_LOCKS.remove(generatedClass.getClassName());
             }
         }
+    }
+
+    private static Class<?> loadClass(final Class<?> parent, final GeneratedConfigClass generatedClass) {
+        for (GeneratedConfigClass auxiliaryClass : generatedClass.getAuxiliaryClasses()) {
+            defineClass(parent, auxiliaryClass.getClassName(), auxiliaryClass.generateClassBytes());
+        }
+        return defineClass(parent, generatedClass.getClassName(), generatedClass.generateClassBytes());
     }
 
     /**
@@ -166,6 +177,15 @@ public final class ConfigMappingLoader {
          * @return the properties
          */
         Property[] getProperties();
+
+        /**
+         * Returns additional generated classes that must be defined alongside this class.
+         *
+         * @return the auxiliary classes, empty by default
+         */
+        default Set<GeneratedConfigClass> getAuxiliaryClasses() {
+            return Collections.emptySet();
+        }
     }
 
     static final class ConfigClassImplementation {
@@ -231,7 +251,8 @@ public final class ConfigMappingLoader {
         private final Class<?> interfaceType;
         private final Class<?> implementation;
 
-        private volatile MethodHandle constructor;
+        private volatile MethodHandle ctorConfigMappingContext;
+        private volatile MethodHandle ctorMapValues;
         private volatile MethodHandle getProperties;
         private volatile MethodHandle getSecrets;
 
@@ -252,10 +273,10 @@ public final class ConfigMappingLoader {
 
         @SuppressWarnings("unchecked")
         <T> T newInstance(final ConfigMappingContext configMappingContext) {
-            MethodHandle ctor = this.constructor;
+            MethodHandle ctor = this.ctorConfigMappingContext;
             if (ctor == null) {
                 try {
-                    this.constructor = ctor = LOOKUP.findConstructor(implementation,
+                    this.ctorConfigMappingContext = ctor = LOOKUP.findConstructor(implementation,
                             methodType(void.class, ConfigMappingContext.class))
                             .asType(methodType(Object.class, ConfigMappingContext.class));
                 } catch (NoSuchMethodException e) {
@@ -265,6 +286,23 @@ public final class ConfigMappingLoader {
                 }
             }
             return (T) invoke(ctor, configMappingContext);
+        }
+
+        @SuppressWarnings("unchecked")
+        <T> T newInstance(final Map<String, Object> values, final Map<Type, Converter<?>> converters) {
+            MethodHandle ctor = this.ctorMapValues;
+            if (ctor == null) {
+                try {
+                    this.ctorMapValues = ctor = LOOKUP.findConstructor(implementation,
+                            methodType(void.class, Map.class, Map.class))
+                            .asType(methodType(Object.class, Map.class, Map.class));
+                } catch (NoSuchMethodException e) {
+                    throw new NoSuchMethodError(e.getMessage());
+                } catch (IllegalAccessException e) {
+                    throw new IllegalAccessError(e.getMessage());
+                }
+            }
+            return (T) invoke(ctor, values, converters);
         }
 
         @SuppressWarnings("unchecked")

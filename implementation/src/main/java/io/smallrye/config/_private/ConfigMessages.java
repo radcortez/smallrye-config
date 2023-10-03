@@ -220,4 +220,13 @@ public interface ConfigMessages {
 
     @Message(id = 58, value = "No handler registered for type %s")
     IllegalArgumentException handlerNotRegistered(Class<?> type);
+
+    @Message(id = 59, value = "Not a valid configuration interface: %s")
+    IllegalArgumentException invalidConfigurationInterface(String name);
+
+    @Message(id = 60, value = "The accessor for a configuration property is not valid")
+    IllegalArgumentException invalidGetter();
+
+    @Message(id = 61, value = "The property %s is required but it was not set in the ConfigInstanceBuilder")
+    NoSuchElementException propertyNotSet(String property);
 }
